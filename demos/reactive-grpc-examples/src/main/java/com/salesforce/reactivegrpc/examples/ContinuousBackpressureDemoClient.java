@@ -22,7 +22,7 @@ import io.reactivex.Single;
  * backpressure.
  */
 public final class ContinuousBackpressureDemoClient {
-    private static final int PAUSE_AFTER_N_MESSAGES = 20;
+    private static final int PAUSE_AFTER_N_MESSAGES = 0;
     private static final int PRINT_EVERY = 100;
 
     private ContinuousBackpressureDemoClient() { }

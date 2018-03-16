@@ -8,6 +8,7 @@
 package com.salesforce.rxgrpc;
 
 import com.google.protobuf.Empty;
+import com.salesforce.grpc.testing.contrib.NettyGrpcServerRule;
 import com.salesforce.servicelibs.NumberProto;
 import com.salesforce.servicelibs.RxNumbersGrpc;
 import io.grpc.*;
@@ -16,10 +17,7 @@ import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.observers.TestObserver;
 import io.reactivex.subscribers.TestSubscriber;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.*;
 
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
@@ -31,11 +29,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SuppressWarnings({"unchecked", "Duplicates"})
 public class CancellationPropagationIntegrationTest {
-    private static final int NUMBER_OF_STREAM_ELEMENTS = 10000;
+    @Rule
+    public NettyGrpcServerRule serverRule = new NettyGrpcServerRule();
 
-    private static Server server;
-    private static ManagedChannel channel;
-    private static TestService svc = new TestService();
+    private static final int NUMBER_OF_STREAM_ELEMENTS = 10000;
 
     private static class TestService extends RxNumbersGrpc.NumbersImplBase {
         private AtomicInteger lastNumberProduced = new AtomicInteger(Integer.MIN_VALUE);
@@ -100,30 +97,12 @@ public class CancellationPropagationIntegrationTest {
         }
     }
 
-    @BeforeClass
-    public static void setupServer() throws Exception {
-        server = ServerBuilder.forPort(0).addService(svc).build().start();
-        channel = ManagedChannelBuilder.forAddress("localhost", server.getPort()).usePlaintext(true).build();
-    }
-
-    @Before
-    public void resetServerStats() {
-        svc.reset();
-    }
-
-    @AfterClass
-    public static void stopServer() throws InterruptedException {
-        channel.shutdown();
-        server.shutdown();
-        server.awaitTermination();
-
-        server = null;
-        channel = null;
-    }
-
     @Test
     public void clientCanCancelServerStreamExplicitly() throws InterruptedException {
-        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
         TestSubscriber<NumberProto.Number> subscription = Single.just(Empty.getDefaultInstance())
                 .as(stub::responsePressure)
                 .doOnNext(number -> System.out.println(number.getNumber(0)))
@@ -144,7 +123,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void clientCanCancelServerStreamImplicitly() throws InterruptedException {
-        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
         TestSubscriber<NumberProto.Number> subscription =  Single.just(Empty.getDefaultInstance())
                 .as(stub::responsePressure)
                 .doOnNext(number -> System.out.println(number.getNumber(0)))
@@ -166,7 +148,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamImplicitly() {
-        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
 
         svc.setExplicitCancel(false);
 
@@ -202,7 +187,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamExplicitly() {
-        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
 
         svc.setExplicitCancel(true);
 
@@ -237,7 +225,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamImplicitlyBidi() {
-        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
 
         svc.setExplicitCancel(false);
 
@@ -271,7 +262,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamExplicitlyBidi() {
-        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
 
         svc.setExplicitCancel(true);
 
@@ -301,6 +295,66 @@ public class CancellationPropagationIntegrationTest {
         observer.assertTerminated();
         assertThat(requestWasCanceled.get()).isTrue();
         assertThat(requestDidProduce.get()).isTrue();
+    }
+
+    private static class ExplodeAfterFiveService extends RxNumbersGrpc.NumbersImplBase {
+        @Override
+        public Flowable<NumberProto.Number> twoWayPressure(Flowable<NumberProto.Number> request) {
+            return request.map(x -> kaboom());
+        }
+
+        @Override
+        public Single<NumberProto.Number> requestPressure(Flowable<NumberProto.Number> request) {
+            return request.map(x -> kaboom()).firstOrError();
+        }
+
+        @Override
+        public Flowable<NumberProto.Number> responsePressure(Single<Empty> request) {
+            return request.map(x -> kaboom()).toFlowable();
+        }
+
+        private NumberProto.Number kaboom() {
+            throw Status.FAILED_PRECONDITION.asRuntimeException();
+        }
+    }
+
+    @Test
+    public void serverErrorSignalsUpstreamCancellationManyToOne() {
+        serverRule.getServiceRegistry().addService(new ExplodeAfterFiveService());
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
+
+        AtomicBoolean upstreamCancel = new AtomicBoolean(false);
+
+        TestObserver<NumberProto.Number> observer = Flowable.just(1, 2, 3, 4, 5, 6, 7, 8)
+                .map(CancellationPropagationIntegrationTest::protoNum)
+                .doOnCancel(() -> upstreamCancel.set(true))
+                .as(stub::requestPressure)
+                .doOnError(System.out::println)
+                .doOnSuccess(i -> System.out.println(i.getNumber(0)))
+                .test();
+
+        observer.awaitTerminalEvent();
+        observer.assertError(StatusRuntimeException.class);
+        assertThat(upstreamCancel.get()).isTrue();
+    }
+
+    @Test
+    public void serverErrorSignalsUpstreamCancellationBidi() {
+        serverRule.getServiceRegistry().addService(new ExplodeAfterFiveService());
+        RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
+
+        AtomicBoolean upstreamCancel = new AtomicBoolean(false);
+
+        TestSubscriber<NumberProto.Number> subscriber = Flowable.just(1, 2, 3, 4, 5, 6, 7, 8)
+                .map(CancellationPropagationIntegrationTest::protoNum)
+                .doOnCancel(() -> upstreamCancel.set(true))
+                .compose(stub::twoWayPressure)
+                .doOnNext(i -> System.out.println(i.getNumber(0)))
+                .test();
+
+        subscriber.awaitTerminalEvent();
+        subscriber.assertError(StatusRuntimeException.class);
+        assertThat(upstreamCancel.get()).isTrue();
     }
 
     private static NumberProto.Number protoNum(int i) {

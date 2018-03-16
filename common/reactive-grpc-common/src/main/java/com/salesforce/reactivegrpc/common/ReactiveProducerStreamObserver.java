@@ -14,7 +14,7 @@ import io.grpc.stub.StreamObserver;
 import org.reactivestreams.Publisher;
 
 /**
- * LambdaStreamObserver configures client-side manual flow control for the producing end of a message stream.
+ * ReactiveProducerStreamObserver configures client-side manual flow control for the producing end of a message stream.
  *
  * @param <TRequest>
  * @param <TResponse>
@@ -56,6 +56,8 @@ public class ReactiveProducerStreamObserver<TRequest, TResponse> implements Stre
 
     @Override
     public void onError(Throwable throwable) {
+        // Alert the upstream producer to stop producing
+        cancel();
         onError.accept(throwable);
     }
 

@@ -39,4 +39,11 @@ public abstract class ReactiveProducerConsumerStreamObserver<TRequest, TResponse
     public void cancel() {
         onReadyHandler.cancel();
     }
+
+    @Override
+    public void onError(Throwable throwable) {
+        // Alert the upstream producer to stop producing
+//        cancel();
+        super.onError(throwable);
+    }
 }
