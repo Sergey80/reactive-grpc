@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.*;
 public class SubscribeOnlyOnceTest {
     @Test
     public void subscribeOnlyOnceFlowableOperatorErrorsWhenMultipleSubscribe() {
-        SubscribeOnlyOnceFlowableOperator<Object> op = new SubscribeOnlyOnceFlowableOperator<Object>();
+        SubscribeOnlyOnceOperator.ForFlowable<Object> op = new SubscribeOnlyOnceOperator.ForFlowable<Object>();
         Subscriber<Object> innerSub = mock(Subscriber.class);
         final Subscription subscription = mock(Subscription.class);
 
@@ -42,7 +42,7 @@ public class SubscribeOnlyOnceTest {
 
     @Test
     public void subscribeOnlyOnceSingleOperatorErrorsWhenMultipleSubscribe() {
-        SubscribeOnlyOnceSingleOperator<Object> op = new SubscribeOnlyOnceSingleOperator<Object>();
+        SubscribeOnlyOnceOperator.ForSingle<Object> op = new SubscribeOnlyOnceOperator.ForSingle<Object>();
         SingleObserver<Object> innerSub = mock(SingleObserver.class);
         final Disposable disposable = mock(Disposable.class);
 

@@ -72,7 +72,7 @@ public final class ClientCalls {
                         );
                     }
                 })
-                .lift(new SubscribeOnlyOnceSingleOperator<TResponse>());
+                .lift(new SubscribeOnlyOnceOperator.ForSingle<TResponse>());
         } catch (Throwable throwable) {
             return Single.error(throwable);
         }
@@ -94,7 +94,7 @@ public final class ClientCalls {
                 }
             });
             return ((Flowable<TResponse>) consumerStreamObserver.getRxConsumer())
-                    .lift(new SubscribeOnlyOnceFlowableOperator<TResponse>());
+                    .lift(new SubscribeOnlyOnceOperator.ForFlowable<TResponse>());
         } catch (Throwable throwable) {
             return Flowable.error(throwable);
         }
@@ -137,7 +137,7 @@ public final class ClientCalls {
                                 }));
                         rxProducerStreamObserver.rxSubscribe();
                     }
-                }).lift(new SubscribeOnlyOnceSingleOperator<TResponse>());
+                }).lift(new SubscribeOnlyOnceOperator.ForSingle<TResponse>());
         } catch (Throwable throwable) {
             return Single.error(throwable);
         }
@@ -160,7 +160,7 @@ public final class ClientCalls {
             }));
             consumerStreamObserver.rxSubscribe();
             return ((Flowable<TResponse>) consumerStreamObserver.getRxConsumer())
-                    .lift(new SubscribeOnlyOnceFlowableOperator<TResponse>());
+                    .lift(new SubscribeOnlyOnceOperator.ForFlowable<TResponse>());
         } catch (Throwable throwable) {
             return Flowable.error(throwable);
         }

@@ -8,13 +8,11 @@
 package com.salesforce.reactorgrpc;
 
 import com.google.protobuf.Empty;
+import com.salesforce.grpc.testing.contrib.NettyGrpcServerRule;
 import com.salesforce.servicelibs.NumberProto;
 import com.salesforce.servicelibs.ReactorNumbersGrpc;
 import io.grpc.*;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.*;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -30,12 +28,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SuppressWarnings({"unchecked", "Duplicates"})
 public class CancellationPropagationIntegrationTest {
+    @Rule
+    public NettyGrpcServerRule serverRule = new NettyGrpcServerRule();
+
     private static final int NUMBER_OF_STREAM_ELEMENTS = 10000;
     private static final int SEQUENCE_DELAY_MILLIS = 10;
-
-    private static Server server;
-    private static ManagedChannel channel;
-    private static TestService svc = new TestService();
 
     private static class TestService extends ReactorNumbersGrpc.NumbersImplBase {
         private AtomicInteger lastNumberProduced = new AtomicInteger(Integer.MIN_VALUE);
@@ -100,32 +97,18 @@ public class CancellationPropagationIntegrationTest {
         }
     }
 
-    @BeforeClass
-    public static void setupServer() throws Exception {
-        server = ServerBuilder.forPort(0).addService(svc).build().start();
-        channel = ManagedChannelBuilder.forAddress("localhost", server.getPort()).usePlaintext(true).build();
-    }
-
     @Before
     public void init() {
         StepVerifier.setDefaultTimeout(Duration.ofSeconds(3));
-        svc.reset();
-    }
-
-    @AfterClass
-    public static void stopServer() throws InterruptedException {
-        channel.shutdown();
-        server.shutdown();
-        server.awaitTermination();
-
-        server = null;
-        channel = null;
     }
 
     @Test
     public void clientCanCancelServerStreamExplicitly() throws InterruptedException {
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
         AtomicInteger lastNumberConsumed = new AtomicInteger(Integer.MAX_VALUE);
-        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(channel);
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
         Flux<NumberProto.Number> test = stub
                 .responsePressure(Mono.just(Empty.getDefaultInstance()))
                 .doOnNext(number -> {lastNumberConsumed.set(number.getNumber(0)); System.out.println("C: " + number.getNumber(0));})
@@ -146,7 +129,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void clientCanCancelServerStreamImplicitly() throws InterruptedException {
-        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
         Flux<NumberProto.Number> test = stub
                 .responsePressure(Mono.just(Empty.getDefaultInstance()))
                 .doOnNext(number -> System.out.println(number.getNumber(0)))
@@ -164,7 +150,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamImplicitly() {
-        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
 
         svc.setExplicitCancel(false);
 
@@ -198,7 +187,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamExplicitly() {
-        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
 
         svc.setExplicitCancel(true);
 
@@ -231,7 +223,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamImplicitlyBidi() {
-        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
 
         svc.setExplicitCancel(false);
 
@@ -264,7 +259,10 @@ public class CancellationPropagationIntegrationTest {
 
     @Test
     public void serverCanCancelClientStreamExplicitlyBidi() {
-        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(channel);
+        TestService svc = new TestService();
+        serverRule.getServiceRegistry().addService(svc);
+
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
 
         svc.setExplicitCancel(true);
 
@@ -293,6 +291,65 @@ public class CancellationPropagationIntegrationTest {
                 .verifyError(StatusRuntimeException.class);
         assertThat(requestWasCanceled.get()).isTrue();
         assertThat(requestDidProduce.get()).isTrue();
+    }
+
+    private static class ExplodeAfterFiveService extends ReactorNumbersGrpc.NumbersImplBase {
+        @Override
+        public Flux<NumberProto.Number> twoWayPressure(Flux<NumberProto.Number> request) {
+            return request.map(x -> kaboom());
+        }
+
+        @Override
+        public Mono<NumberProto.Number> requestPressure(Flux<NumberProto.Number> request) {
+            return request.map(x -> kaboom()).single();
+        }
+
+        @Override
+        public Flux<NumberProto.Number> responsePressure(Mono<Empty> request) {
+            return request.map(x -> kaboom()).flux();
+        }
+
+        private NumberProto.Number kaboom() {
+            throw Status.FAILED_PRECONDITION.asRuntimeException();
+        }
+    }
+
+    @Test
+    public void serverErrorSignalsUpstreamCancellationManyToOne() {
+        serverRule.getServiceRegistry().addService(new ExplodeAfterFiveService());
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
+
+        AtomicBoolean upstreamCancel = new AtomicBoolean(false);
+
+        Mono<NumberProto.Number> observer = Flux.just(1, 2, 3, 4, 5, 6, 7, 8)
+                .map(CancellationPropagationIntegrationTest::protoNum)
+                .doOnCancel(() -> upstreamCancel.set(true))
+                .as(stub::requestPressure)
+                .doOnError(System.out::println)
+                .doOnSuccess(i -> System.out.println(i.getNumber(0)));
+
+        StepVerifier.create(observer)
+                .verifyError(StatusRuntimeException.class);
+
+        assertThat(upstreamCancel.get()).isTrue();
+    }
+
+    @Test
+    public void serverErrorSignalsUpstreamCancellationBidi() {
+        serverRule.getServiceRegistry().addService(new ExplodeAfterFiveService());
+        ReactorNumbersGrpc.ReactorNumbersStub stub = ReactorNumbersGrpc.newReactorStub(serverRule.getChannel());
+
+        AtomicBoolean upstreamCancel = new AtomicBoolean(false);
+
+        Flux<NumberProto.Number> subscriber = Flux.just(1, 2, 3, 4, 5, 6, 7, 8)
+                .map(CancellationPropagationIntegrationTest::protoNum)
+                .doOnCancel(() -> upstreamCancel.set(true))
+                .compose(stub::twoWayPressure)
+                .doOnNext(i -> System.out.println(i.getNumber(0)));
+
+        StepVerifier.create(subscriber)
+                .verifyError(StatusRuntimeException.class);
+        assertThat(upstreamCancel.get()).isTrue();
     }
 
     private static NumberProto.Number protoNum(int i) {

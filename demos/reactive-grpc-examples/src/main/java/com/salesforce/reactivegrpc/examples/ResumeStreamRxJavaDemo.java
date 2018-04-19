@@ -66,7 +66,7 @@ public final class ResumeStreamRxJavaDemo {
     }
 
     /**
-     * GrpcRetryFlowable automatically restarts a gRPC Flowable stream in the face of an error.
+     * GrpcRetryFlowable automatically restarts a gRPC ForFlowable stream in the face of an error.
      * @param <T>
      */
     private static class GrpcRetryFlowable<T> extends Flowable<T> {

@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +33,7 @@ public class CancellationPropagationIntegrationTest {
     @Rule
     public NettyGrpcServerRule serverRule = new NettyGrpcServerRule();
 
-    private static final int NUMBER_OF_STREAM_ELEMENTS = 10000;
+    private static final int NUMBER_OF_STREAM_ELEMENTS = Integer.MAX_VALUE;
 
     private static class TestService extends RxNumbersGrpc.NumbersImplBase {
         private AtomicInteger lastNumberProduced = new AtomicInteger(Integer.MIN_VALUE);
@@ -324,18 +325,20 @@ public class CancellationPropagationIntegrationTest {
         RxNumbersGrpc.RxNumbersStub stub = RxNumbersGrpc.newRxStub(serverRule.getChannel());
 
         AtomicBoolean upstreamCancel = new AtomicBoolean(false);
+        AtomicReference<Throwable> throwable = new AtomicReference<>();
 
-        TestObserver<NumberProto.Number> observer = Flowable.just(1, 2, 3, 4, 5, 6, 7, 8)
+        TestObserver<NumberProto.Number> observer = Flowable.range(0, Integer.MAX_VALUE)
                 .map(CancellationPropagationIntegrationTest::protoNum)
                 .doOnCancel(() -> upstreamCancel.set(true))
                 .as(stub::requestPressure)
-                .doOnError(System.out::println)
+                .doOnError(throwable::set)
                 .doOnSuccess(i -> System.out.println(i.getNumber(0)))
                 .test();
 
-        observer.awaitTerminalEvent();
+        observer.awaitTerminalEvent(3, TimeUnit.SECONDS);
         observer.assertError(StatusRuntimeException.class);
         assertThat(upstreamCancel.get()).isTrue();
+        assertThat(((StatusRuntimeException) throwable.get()).getStatus()).isEqualTo(Status.FAILED_PRECONDITION);
     }
 
     @Test
@@ -345,14 +348,14 @@ public class CancellationPropagationIntegrationTest {
 
         AtomicBoolean upstreamCancel = new AtomicBoolean(false);
 
-        TestSubscriber<NumberProto.Number> subscriber = Flowable.just(1, 2, 3, 4, 5, 6, 7, 8)
+        TestSubscriber<NumberProto.Number> subscriber = Flowable.range(0, Integer.MAX_VALUE)
                 .map(CancellationPropagationIntegrationTest::protoNum)
                 .doOnCancel(() -> upstreamCancel.set(true))
                 .compose(stub::twoWayPressure)
                 .doOnNext(i -> System.out.println(i.getNumber(0)))
                 .test();
 
-        subscriber.awaitTerminalEvent();
+        subscriber.awaitTerminalEvent(3, TimeUnit.SECONDS);
         subscriber.assertError(StatusRuntimeException.class);
         assertThat(upstreamCancel.get()).isTrue();
     }
